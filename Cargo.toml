@@ -1,0 +1,40 @@
+[package]
+name = "gray-email"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+license = "MIT"
+description = "Standalone email (IMAP/SMTP) transport and setup for gray"
+
+[lib]
+name = "gray_email"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gray-email"
+path = "src/main.rs"
+
+[dependencies]
+async-imap = { version = "0.12", default-features = false, features = ["runtime-tokio"] }
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+futures-util = "0.3"
+libc = "0.2"
+lettre = { version = "0.11", default-features = false, features = [
+    "builder",
+    "hostname",
+    "smtp-transport",
+    "tokio1-rustls-tls",
+] }
+mail-parser = "0.11"
+rusqlite = { version = "0.32", features = ["bundled"] }
+rustls = "0.23"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = "0.26"
+webpki-roots = "0.26"
+
+[dev-dependencies]
+tempfile = "3"
