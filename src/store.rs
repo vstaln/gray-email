@@ -86,6 +86,10 @@ impl Store {
             .map_err(map_err)?;
         conn.execute_batch(SCHEMA).map_err(map_err)?;
         let _ = conn.execute(
+            "ALTER TABLE inbox ADD COLUMN cancel INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = conn.execute(
             "ALTER TABLE inbox ADD COLUMN retry_at REAL NOT NULL DEFAULT 0",
             [],
         );
@@ -164,7 +168,7 @@ impl Store {
         match row {
             Some(item) => {
                 conn.execute(
-                    "UPDATE inbox SET state='running' WHERE id=?1",
+                    "UPDATE inbox SET state='running', cancel=0 WHERE id=?1",
                     rusqlite::params![item.id],
                 )
                 .map_err(map_err)?;
@@ -278,6 +282,42 @@ impl Store {
         Ok(n > 0)
     }
 
+    pub fn cancel_conversation(&self, conversation: &str) -> Result<bool, String> {
+        let n = self
+            .conn
+            .lock()
+            .map_err(|_| "store locked".to_string())?
+            .execute(
+                "UPDATE inbox SET cancel=1 WHERE conversation=?1 AND state='running'",
+                rusqlite::params![conversation],
+            )
+            .map_err(map_err)?;
+        Ok(n > 0)
+    }
+
+    pub fn cancel_requested(&self, id: &str) -> Result<bool, String> {
+        self.conn
+            .lock()
+            .map_err(|_| "store locked".to_string())?
+            .query_row("SELECT cancel FROM inbox WHERE id=?1", [id], |r| {
+                r.get::<_, i64>(0)
+            })
+            .map(|c| c != 0)
+            .map_err(map_err)
+    }
+
+    pub fn mark_cancelled(&self, id: &str) -> Result<(), String> {
+        self.conn
+            .lock()
+            .map_err(|_| "store locked".to_string())?
+            .execute(
+                "UPDATE inbox SET state='cancelled', cancel=0 WHERE id=?1",
+                rusqlite::params![id],
+            )
+            .map_err(map_err)?;
+        Ok(())
+    }
+
     /// Restart recovery: `running` rows were interrupted — re-queue them.
     /// Returns how many turns were cut short.
     pub fn recover(&self) -> Result<usize, String> {
@@ -285,7 +325,8 @@ impl Store {
             .lock()
             .map_err(|_| "store locked".to_string())?
             .execute(
-                "UPDATE inbox SET state='queued' WHERE state='running'",
+                "UPDATE inbox SET state=CASE WHEN cancel=1 THEN 'cancelled' ELSE 'queued' END \
+                 WHERE state='running'",
                 [],
             )
             .map_err(map_err)

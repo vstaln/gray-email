@@ -71,6 +71,10 @@ message. Mail arriving while a turn runs queues as its own next turn
 ("Queued — N ahead.", at most once per 30s); set `busy_input_mode: "steer"`
 to steer the running turn instead.
 
+A mail whose body starts with `/stop` cancels the turn running for that
+sender ("Stopped."); queued mail still runs next. With nothing running the
+reply is "Nothing running."
+
 ## Tools
 
 `email_send(to?, subject?, body, attachments?)` — the model's outbound
