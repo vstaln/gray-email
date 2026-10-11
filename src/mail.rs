@@ -51,7 +51,11 @@ fn wire(e: impl std::fmt::Display) -> String {
     let text = e.to_string();
     let first = text.lines().next().unwrap_or("").trim();
     if first.len() > 160 {
-        format!("{}…", &first[..160])
+        let mut end = 160;
+        while !first.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}…", &first[..end])
     } else {
         first.to_string()
     }
@@ -359,11 +363,15 @@ pub fn strip_html(html: &str) -> String {
                 out.push_str(&rest[..i]);
                 let after = &rest[i..];
                 let Some(end) = after.find('>') else { break };
-                let tag = &after[..end.min(8)];
+                let mut cap = end.min(8);
+                while !after.is_char_boundary(cap) {
+                    cap -= 1;
+                }
+                let tag = &after[..cap];
                 let t = tag
                     .trim_start_matches('<')
                     .trim_start_matches('/');
-                if (t.len() >= 2 && t[..2].eq_ignore_ascii_case("br"))
+                if t.get(..2).is_some_and(|p| p.eq_ignore_ascii_case("br"))
                     || t.starts_with(|c: char| c.eq_ignore_ascii_case(&'p'))
                 {
                     out.push('\n');
@@ -649,7 +657,7 @@ pub fn reply_subject(subject: &str) -> String {
     let s = subject.trim();
     if s.is_empty() {
         "gray".to_string()
-    } else if s.len() >= 3 && s[..3].eq_ignore_ascii_case("re:") {
+    } else if s.get(..3).is_some_and(|p| p.eq_ignore_ascii_case("re:")) {
         s.to_string()
     } else {
         format!("Re: {s}")
