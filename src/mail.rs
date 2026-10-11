@@ -648,7 +648,7 @@ pub async fn send(config: &Value, mail: &OutMail) -> Result<String, String> {
     Ok(format!(
         "sent to {} ({})",
         mail.to,
-        response.code().to_string()
+        response.code()
     ))
 }
 
@@ -681,19 +681,19 @@ fn inline(text: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         let rest = &text[i..];
-        if rest.starts_with("**") {
-            if let Some(end) = rest[2..].find("**") {
+        if let Some(after) = rest.strip_prefix("**") {
+            if let Some(end) = after.find("**") {
                 out.push_str("<strong>");
-                out.push_str(&inline(&rest[2..2 + end]));
+                out.push_str(&inline(&after[..end]));
                 out.push_str("</strong>");
                 i += 4 + end;
                 continue;
             }
         }
-        if rest.starts_with('`') {
-            if let Some(end) = rest[1..].find('`') {
+        if let Some(after) = rest.strip_prefix('`') {
+            if let Some(end) = after.find('`') {
                 out.push_str("<code>");
-                out.push_str(&esc(&rest[1..1 + end]));
+                out.push_str(&esc(&after[..end]));
                 out.push_str("</code>");
                 i += 2 + end;
                 continue;

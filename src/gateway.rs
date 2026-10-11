@@ -24,6 +24,7 @@ struct Daemon {
     config: Value,
     config_path: PathBuf,
     store: Store,
+    acks: crate::busy::Acks,
 }
 
 impl Daemon {
@@ -109,8 +110,8 @@ impl Daemon {
                 }
             }
             Err(RunError::Busy) => {
-                self.store.requeue(&item.id)?;
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                self.store
+                    .requeue_busy(&item.id, crate::busy::BUSY_RETRY_SECS)?;
             }
             Err(e) => {
                 let _ = say(
@@ -157,6 +158,15 @@ async fn say(
     )
     .await
     .map(|_| ())
+}
+
+fn steer_body(text: &str) -> String {
+    text.lines()
+        .take_while(|l| !l.trim_start().starts_with('>') && !l.trim_end().ends_with("wrote:"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
 }
 
 /// Header preflight + full fetch + enqueue for one unseen uid. Every path
@@ -206,6 +216,31 @@ async fn process_uid(daemon: &Daemon, inbox: &mut Inbox, uid: u32) -> Result<(),
         return Ok(());
     }
     let conversation = crate::session::conversation_key(&mail.from);
+    let reply_subject = crate::mail::reply_subject(&mail.subject);
+    let reply_to = (!mail.msg_id.is_empty()).then_some(mail.msg_id.as_str());
+    let body = mail
+        .text
+        .split_once("\n\n")
+        .map(|(_, b)| b)
+        .unwrap_or(&mail.text);
+    let steer = crate::busy::command(body, "steer").map(steer_body);
+    let steered = match &steer {
+        Some(t) if t.is_empty() => Some(crate::busy::STEER_USAGE),
+        Some(t) if crate::runner::steer(&conversation, t).await => Some(crate::busy::STEERING),
+        Some(_) => None,
+        None if crate::busy::steer_mode(&daemon.config)
+            && crate::runner::steer(&conversation, &mail.text).await =>
+        {
+            Some(crate::busy::STEERING)
+        }
+        None => None,
+    };
+    if let Some(note) = steered {
+        let _ = say(&daemon.config, &mail.from, &reply_subject, note, reply_to).await;
+        inbox.mark_seen(uid).await;
+        return Ok(());
+    }
+    let prompt = steer.clone().unwrap_or_else(|| mail.text.clone());
     let capacity = daemon
         .config
         .get("queue_capacity")
@@ -215,12 +250,26 @@ async fn process_uid(daemon: &Daemon, inbox: &mut Inbox, uid: u32) -> Result<(),
         &mail.from,
         &mail.from,
         &conversation,
-        &mail.text,
+        &prompt,
         &mail.subject,
         &mail.msg_id,
         capacity,
     ) {
-        Ok(id) => eprintln!("[email] queued {id} from {} (uid {uid})", mail.from),
+        Ok(id) => {
+            eprintln!("[email] queued {id} from {} (uid {uid})", mail.from);
+            let ack = if steer.is_some() {
+                Some(crate::busy::IDLE_STEER.to_string())
+            } else {
+                daemon.acks.queued(
+                    &conversation,
+                    daemon.store.ahead(&conversation, &id).unwrap_or(0),
+                    crate::store::now_secs(),
+                )
+            };
+            if let Some(ack) = ack {
+                let _ = say(&daemon.config, &mail.from, &reply_subject, &ack, reply_to).await;
+            }
+        }
         Err(e) => {
             let _ = say(
                 &daemon.config,
@@ -279,9 +328,7 @@ async fn poll_session(
     loop {
         let uids = inbox.new_uids(floor).await?;
         for uid in uids {
-            if let Err(e) = process_uid(daemon, &mut inbox, uid).await {
-                return Err(e);
-            }
+            process_uid(daemon, &mut inbox, uid).await?;
             floor = floor.max(uid);
             let _ = daemon.store.meta_set("uid_floor", &floor.to_string());
         }
@@ -353,6 +400,7 @@ pub async fn run(config_path: &Path) -> Result<(), String> {
         config: config.clone(),
         config_path: config_path.to_path_buf(),
         store,
+        acks: crate::busy::Acks::default(),
     });
 
     // Boot notice is computed now (it records lifecycle state) and mailed

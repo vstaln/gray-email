@@ -65,6 +65,12 @@ The service probes what this box actually supervises with (runit,
 `systemd --user`, or a detached gray-managed process) and installs
 accordingly — never a root unit, never a secret in a unit file.
 
+A mail whose body starts with `/steer <text>` adds guidance to the turn
+already running for that sender; with nothing running it is sent as a new
+message. Mail arriving while a turn runs queues as its own next turn
+("Queued — N ahead.", at most once per 30s); set `busy_input_mode: "steer"`
+to steer the running turn instead.
+
 ## Tools
 
 `email_send(to?, subject?, body, attachments?)` — the model's outbound
