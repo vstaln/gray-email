@@ -11,9 +11,10 @@ const LINE_CAP: usize = 1024 * 1024;
 #[derive(Debug, Clone)]
 pub enum RunError {
     Busy,
-    Timeout,
+    Timeout(u64),
     /// The turn used all `max_requests` provider requests and was stopped.
     RequestLimit(u64),
+    Provider(String),
     Spawn(String),
     Protocol(String),
     Exit(Option<i32>),
@@ -26,28 +27,42 @@ impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Busy => f.write_str("This conversation is busy"),
-            Self::Timeout => f.write_str("gray turn timed out"),
-            Self::RequestLimit(n) => write!(f, "gray turn hit its {n}-request limit"),
-            Self::Spawn(_) => f.write_str("cannot start gray agent"),
+            Self::Timeout(secs) => write!(f, "the turn ran past its {secs}-second limit"),
+            Self::RequestLimit(n) => write!(f, "the turn used its {n}-request limit"),
+            Self::Provider(reason) if reason.is_empty() => f.write_str("gray reported an error"),
+            Self::Provider(reason) => write!(f, "gray reported an error: {reason}"),
+            Self::Spawn(_) => f.write_str("gray could not be started"),
             Self::Protocol(_) => {
-                f.write_str("Invalid agent JSON output; upgrade gray to a compatible version")
+                f.write_str("gray sent output this gateway cannot read; upgrade gray")
             }
-            Self::Exit(Some(n)) => write!(
-                f,
-                "gray exited with code {n}; not retrying possible side effects"
-            ),
-            Self::Exit(None) => {
-                f.write_str("gray exited without a status; not retrying possible side effects")
-            }
-            Self::Incomplete => f.write_str(
-                "Agent did not return a completed result; actions may already have occurred",
-            ),
-            Self::Empty => f.write_str("Agent returned no final answer"),
-            Self::Io(_) => f.write_str("gray turn failed; check connectivity"),
+            Self::Exit(Some(n)) => write!(f, "gray exited with code {n}"),
+            Self::Exit(None) => f.write_str("gray exited without a status"),
+            Self::Incomplete => f.write_str("the agent stopped before it finished its answer"),
+            Self::Empty => f.write_str("the agent returned no answer"),
+            Self::Io(reason) => f.write_str(reason),
         }
     }
 }
 impl std::error::Error for RunError {}
+
+impl RunError {
+    pub fn notice(&self) -> String {
+        let lead = match self {
+            Self::Timeout(_) => "Gave up",
+            _ => "That failed",
+        };
+        format!("{lead}: {self}. Some steps may already have run. Send a message to try again.")
+    }
+}
+
+fn clean_reason(text: &str) -> String {
+    let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    line.chars()
+        .take(300)
+        .collect::<String>()
+        .trim_end_matches('.')
+        .to_string()
+}
 
 struct Consume {
     terminal: Option<Value>,
@@ -243,10 +258,17 @@ pub async fn run_gray(
         .get("gray_home")
         .and_then(Value::as_str)
         .unwrap_or("");
-    let provider: Value = std::fs::read(Path::new(gray_home).join("config.json"))
+    let mut provider: Value = std::fs::read(Path::new(gray_home).join("config.json"))
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
         .ok_or_else(|| RunError::Io("gray provider configuration is missing".to_string()))?;
+    if let Some(model) = config
+        .get("model")
+        .and_then(Value::as_str)
+        .filter(|m| !m.trim().is_empty())
+    {
+        provider["model"] = Value::String(model.to_string());
+    }
     crate::config::atomic_json(&home.join("config.json"), &provider).map_err(RunError::Io)?;
 
     // Dedicated workdir/profile: the email tools plus the minimal builtin
@@ -377,6 +399,9 @@ pub async fn run_gray(
         cmd.env(k, v);
     }
     cmd.env("GRAY_HOME", &home);
+    if !gray_home.is_empty() {
+        cmd.env("GRAY_USER_HOME", gray_home);
+    }
     cmd.env(
         "PATH",
         child_path(
@@ -415,7 +440,7 @@ pub async fn run_gray(
                 }
                 let _ = child.wait().await;
                 group.0 = 0;
-                return Err(RunError::Timeout);
+                return Err(RunError::Timeout(timeout_secs));
             }
         };
     let status = child.wait().await;
@@ -429,6 +454,11 @@ pub async fn run_gray(
         if row["accounting"]["requests"].as_u64() >= Some(max_requests) {
             return Err(RunError::RequestLimit(max_requests));
         }
+        let text = ["message", "error"]
+            .iter()
+            .find_map(|key| row[*key].as_str())
+            .unwrap_or_default();
+        return Err(RunError::Provider(clean_reason(text)));
     }
     if !status.success() {
         return Err(RunError::Exit(status.code()));

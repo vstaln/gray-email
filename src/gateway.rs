@@ -125,7 +125,7 @@ impl Daemon {
                     &self.config,
                     &item.target,
                     &crate::mail::reply_subject(&item.subject),
-                    &e.to_string(),
+                    &e.notice(),
                     if item.msg_id.is_empty() {
                         None
                     } else {
