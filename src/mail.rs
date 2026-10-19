@@ -521,8 +521,8 @@ fn mime_for(path: &str) -> String {
 /// Read one file for attachment; errors describe the path, never contents.
 pub fn read_attachment(path: &str) -> Result<OutAttachment, String> {
     let expanded = if let Some(rest) = path.strip_prefix("~/") {
-        std::env::var_os("HOME")
-            .map(|h| PathBuf::from(h).join(rest))
+        crate::config::user_home()
+            .map(|h| h.join(rest))
             .unwrap_or_else(|| PathBuf::from(path))
     } else {
         PathBuf::from(path)
