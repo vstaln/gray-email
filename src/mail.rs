@@ -137,16 +137,16 @@ async fn raw_line(stream: &mut TcpStream) -> Result<String, String> {
 /// STARTTLS on 143: greeting, `STARTTLS`, tagged OK, then the TLS upgrade.
 /// The post-upgrade session has no second greeting — `Client::new` does not
 /// need one.
-async fn starttls(host: &str, port: u16) -> Result<tokio_rustls::client::TlsStream<TcpStream>, String> {
+async fn starttls(
+    host: &str,
+    port: u16,
+) -> Result<tokio_rustls::client::TlsStream<TcpStream>, String> {
     let mut stream = tcp(host, port).await?;
     let greeting = raw_line(&mut stream).await?;
     if greeting.contains(" BYE") || greeting.starts_with("* PREAUTH") {
         return Err("IMAP server refused the connection".to_string());
     }
-    stream
-        .write_all(b"a1 STARTTLS\r\n")
-        .await
-        .map_err(wire)?;
+    stream.write_all(b"a1 STARTTLS\r\n").await.map_err(wire)?;
     let mut ok = false;
     for _ in 0..16 {
         let line = raw_line(&mut stream).await?;
@@ -368,9 +368,7 @@ pub fn strip_html(html: &str) -> String {
                     cap -= 1;
                 }
                 let tag = &after[..cap];
-                let t = tag
-                    .trim_start_matches('<')
-                    .trim_start_matches('/');
+                let t = tag.trim_start_matches('<').trim_start_matches('/');
                 if t.get(..2).is_some_and(|p| p.eq_ignore_ascii_case("br"))
                     || t.starts_with(|c: char| c.eq_ignore_ascii_case(&'p'))
                 {
@@ -419,12 +417,7 @@ pub fn spool_dir(config_path: &Path) -> PathBuf {
 
 /// Parse a full message and spool its attachments. Returns the sender,
 /// subject, message-id and the prompt text (subject + body + spool paths).
-pub fn parse_full(
-    head: Head,
-    uid: u32,
-    raw: &[u8],
-    spool: &Path,
-) -> Result<InMail, String> {
+pub fn parse_full(head: Head, uid: u32, raw: &[u8], spool: &Path) -> Result<InMail, String> {
     let Some(msg) = mail_parser::MessageParser::default().parse(raw) else {
         return Err("could not parse the message".to_string());
     };
@@ -465,7 +458,6 @@ pub fn parse_full(
         text,
     })
 }
-
 
 // ---------------------------------------------------------------------------
 // outbound
@@ -578,9 +570,7 @@ pub async fn send(config: &Value, mail: &OutMail) -> Result<String, String> {
         .subject(&mail.subject);
     if let Some(id) = &mail.reply_to {
         let id = bracketed(id);
-        builder = builder
-            .in_reply_to(id.clone())
-            .references(id);
+        builder = builder.in_reply_to(id.clone()).references(id);
     }
 
     let alt = MultiPart::alternative_plain_html(mail.text.clone(), mail.html.clone());
@@ -589,13 +579,10 @@ pub async fn send(config: &Value, mail: &OutMail) -> Result<String, String> {
     } else {
         let mut mixed = MultiPart::mixed().multipart(alt);
         for a in &mail.attachments {
-            let ct: header::ContentType = a
-                .mime
-                .parse()
-                .unwrap_or_else(|_| header::ContentType::parse("application/octet-stream").unwrap());
-            mixed = mixed.singlepart(
-                Attachment::new(a.filename.clone()).body(a.data.clone(), ct),
-            );
+            let ct: header::ContentType = a.mime.parse().unwrap_or_else(|_| {
+                header::ContentType::parse("application/octet-stream").unwrap()
+            });
+            mixed = mixed.singlepart(Attachment::new(a.filename.clone()).body(a.data.clone(), ct));
         }
         mixed
     };
@@ -645,11 +632,7 @@ pub async fn send(config: &Value, mail: &OutMail) -> Result<String, String> {
         .await
         .map_err(|_| "timed out sending via SMTP".to_string())?
         .map_err(|e| format!("SMTP send failed: {}", wire(e)))?;
-    Ok(format!(
-        "sent to {} ({})",
-        mail.to,
-        response.code()
-    ))
+    Ok(format!("sent to {} ({})", mail.to, response.code()))
 }
 
 /// `Re:` prefix, unless the subject already answers something.
@@ -705,11 +688,7 @@ fn inline(text: &str) -> String {
                     let label = &rest[1..close];
                     let url = &rest[close + 2..close + 2 + open];
                     if url.starts_with("http://") || url.starts_with("https://") {
-                        out.push_str(&format!(
-                            "<a href=\"{}\">{}</a>",
-                            esc(url),
-                            esc(label)
-                        ));
+                        out.push_str(&format!("<a href=\"{}\">{}</a>", esc(url), esc(label)));
                         i += close + 3 + open;
                         continue;
                     }
@@ -737,9 +716,8 @@ fn inline(text: &str) -> String {
 /// lists, bold/em, links — enough for an agent reply.
 pub fn render(md: &str) -> (String, String) {
     let mut text = String::new();
-    let mut html = String::from(
-        "<html><body style=\"font-family:sans-serif;font-size:14px;color:#222\">",
-    );
+    let mut html =
+        String::from("<html><body style=\"font-family:sans-serif;font-size:14px;color:#222\">");
     let mut in_code = false;
     let mut in_list = false;
     let mut para: Vec<String> = Vec::new();
@@ -749,7 +727,13 @@ pub fn render(md: &str) -> (String, String) {
             text.push_str(&joined);
             text.push_str("\n\n");
             html.push_str("<p>");
-            html.push_str(&para.iter().map(|l| inline(l)).collect::<Vec<_>>().join("<br>\n"));
+            html.push_str(
+                &para
+                    .iter()
+                    .map(|l| inline(l))
+                    .collect::<Vec<_>>()
+                    .join("<br>\n"),
+            );
             html.push_str("</p>\n");
             para.clear();
         }
@@ -862,7 +846,10 @@ mod tests {
 
     #[test]
     fn strip_html_basic() {
-        assert_eq!(strip_html("<p>Hello <b>world</b></p><p>next</p>").trim(), "Hello world\n\nnext");
+        assert_eq!(
+            strip_html("<p>Hello <b>world</b></p><p>next</p>").trim(),
+            "Hello world\n\nnext"
+        );
     }
 
     #[test]

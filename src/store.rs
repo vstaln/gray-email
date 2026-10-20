@@ -154,7 +154,16 @@ impl Store {
         conn.execute(
             "INSERT INTO inbox (id,target,sender,conversation,text,subject,msg_id,state,created) \
              VALUES (?1,?2,?3,?4,?5,?6,?7,'queued',?8)",
-            rusqlite::params![id, target, sender, conversation, text, subject, msg_id, now_secs()],
+            rusqlite::params![
+                id,
+                target,
+                sender,
+                conversation,
+                text,
+                subject,
+                msg_id,
+                now_secs()
+            ],
         )
         .map_err(map_err)?;
         Ok(id)
@@ -164,11 +173,9 @@ impl Store {
         self.conn
             .lock()
             .map_err(|_| "store locked".to_string())?
-            .query_row(
-                "SELECT COUNT(*) FROM inbox WHERE state='queued'",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM inbox WHERE state='queued'", [], |r| {
+                r.get(0)
+            })
             .map_err(map_err)
     }
 
@@ -405,9 +412,7 @@ impl Store {
         self.conn
             .lock()
             .map_err(|_| "store locked".to_string())?
-            .query_row("SELECT value FROM meta WHERE key=?1", [key], |r| {
-                r.get(0)
-            })
+            .query_row("SELECT value FROM meta WHERE key=?1", [key], |r| r.get(0))
             .map(Some)
             .or_else(|e| match e {
                 rusqlite::Error::QueryReturnedNoRows => Ok(None),

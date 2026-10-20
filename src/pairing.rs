@@ -39,11 +39,7 @@ pub struct PairingReply {
     pub code: String,
 }
 
-pub fn reply_for(
-    store: &crate::store::Store,
-    addr: &str,
-    admitted: bool,
-) -> Option<PairingReply> {
+pub fn reply_for(store: &crate::store::Store, addr: &str, admitted: bool) -> Option<PairingReply> {
     if admitted || addr.is_empty() {
         return None;
     }

@@ -327,7 +327,10 @@ pub async fn run(path: &Path, io: &mut dyn Prompter) -> Result<bool, String> {
         "tls",
     )?;
     let default_port: u64 = if imap_security == "tls" { 993 } else { 143 };
-    let imap_port = port_or(&io.prompt(&format!("IMAP port [{default_port}]: "))?, default_port)?;
+    let imap_port = port_or(
+        &io.prompt(&format!("IMAP port [{default_port}]: "))?,
+        default_port,
+    )?;
 
     io.print_line("Outbound (SMTP):");
     let smtp_host = io.prompt("SMTP host (e.g. smtp.gmail.com): ")?;
@@ -344,7 +347,10 @@ pub async fn run(path: &Path, io: &mut dyn Prompter) -> Result<bool, String> {
         "plain" => 25,
         _ => 587,
     };
-    let smtp_port = port_or(&io.prompt(&format!("SMTP port [{default_port}]: "))?, default_port)?;
+    let smtp_port = port_or(
+        &io.prompt(&format!("SMTP port [{default_port}]: "))?,
+        default_port,
+    )?;
 
     let poll_answer = io.prompt("Poll interval in seconds [60]: ")?;
     let poll_seconds: u64 = if poll_answer.trim().is_empty() {
@@ -378,13 +384,8 @@ pub async fn run(path: &Path, io: &mut dyn Prompter) -> Result<bool, String> {
     }
     let allowed = merge(prior_allowed, &allowed);
 
-    let default_home = allowed
-        .first()
-        .cloned()
-        .unwrap_or_else(|| address.clone());
-    let home_answer = io.prompt(&format!(
-        "Home address for cron/notices [{default_home}]: "
-    ))?;
+    let default_home = allowed.first().cloned().unwrap_or_else(|| address.clone());
+    let home_answer = io.prompt(&format!("Home address for cron/notices [{default_home}]: "))?;
     let home_address = if home_answer.trim().is_empty() {
         default_home
     } else {
