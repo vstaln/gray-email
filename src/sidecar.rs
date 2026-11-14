@@ -11,6 +11,7 @@ pub static MANIFEST: LazyLock<Value> = LazyLock::new(|| {
         "version": env!("CARGO_PKG_VERSION"),
         "protocol": "1.1",
         "requires_plugins": ["gateway"],
+        "description": "read and send email over imap and smtp",
         "commands": [],
         "hooks": ["prompt/context"],
         "tools": [{
